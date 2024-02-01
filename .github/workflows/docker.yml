@@ -5,9 +5,6 @@ on:
     tags:
       - "*.*.*"
 
-env:
-  IMAGE_VERSION: ${{ vars.POSTGIS_VERSION }}-${{ github.ref_name }}
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,6 +12,24 @@ jobs:
     steps:
       - name: Set up the repository
         uses: actions/checkout@v3
+
+      - name: Release check
+        id: release
+        run: |
+          if [[ ${{ github.ref_name }} =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "release=true" >> $GITHUB_OUTPUT
+          else
+            echo "release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: cytomineuliege/postgis
+          tags: |
+            type=raw,value=latest,enable=${{ steps.release.outputs.release }}
+            type=semver,pattern={{raw}}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
@@ -31,9 +46,10 @@ jobs:
           build-args: |
             ENTRYPOINT_SCRIPTS_VERSION=${{ vars.ENTRYPOINT_SCRIPTS_VERSION }}
             IMAGE_REVISION=${{ github.sha }}
-            IMAGE_VERSION=${{ env.IMAGE_VERSION }}
+            IMAGE_VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
             POSTGIS_VERSION=${{ vars.POSTGIS_VERSION }}
           context: .
           file: ./Dockerfile
+          labels: ${{ steps.meta.outputs.labels }}
           push: true
-          tags: cytomineuliege/postgis:${{ env.IMAGE_VERSION }}
+          tags: ${{ steps.meta.outputs.tags }}
