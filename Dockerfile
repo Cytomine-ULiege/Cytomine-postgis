@@ -29,19 +29,37 @@ ARG IMAGE_VERSION
 ARG IMAGE_REVISION
 ARG POSTGIS_VERSION
 
-#set default user (and default DB name) to docker by default
-ENV POSTGRES_USER=docker
+# set default superadmin user postgres + set defaults for component specific databass sdb and user
+ENV APPENGINE_DB=appengine
+ENV APPENGINE_USER=appengine
+ENV IAM_DB=iam
+ENV IAM_USER=iam
 
-# database init
-COPY files/initdb-cytomine-extensions.sh /docker-entrypoint-initdb.d/11_cytomine_extensions.sh
-COPY files/initdb-cytomine-users.sh /docker-entrypoint-initdb.d/12_cytomine_users.sh
+# database init. Warning: those are only run if data volume is empty
+RUN mkdir -p /etc/postgres/conf.d /docker-entrypoint-cytomine.d/ /docker-entrypoint-initdb.d/ /checks/
+COPY files/initdb/initdb-cytomine-extensions.sql /docker-entrypoint-initdb.d/11_cytomine-extensions.sql
 
 # default configuration
-RUN mkdir -p /etc/postgres/conf.d
-COPY files/postgres.conf /etc/postgres/postgres.conf
-COPY files/postgres.default.conf /etc/postgres/00-default.conf
+COPY files/conf/postgres.conf /etc/postgres/postgres.conf
+COPY files/conf/postgres.default.conf /etc/postgres/00-default.conf
 
-RUN mkdir /docker-entrypoint-cytomine.d/
+# entry points. Triggered at every container starts
+COPY files/scripts/check-backup-folder.sh /docker-entrypoint-cytomine.d/550-check-backup-folder.sh
+COPY files/scripts/start-crond.sh /docker-entrypoint-cytomine.d/600-start-crond.sh
+COPY files/scripts/check_dbs_users.sh /docker-entrypoint-cytomine.d/700-check_dbs_users.sh
+COPY files/checks /checks
+
+# backup and restore scripts
+COPY files/scripts/backup-cron-job /backup-cron-job
+COPY files/scripts/cytomine-postgis-backup.sh /usr/local/bin/backup
+COPY files/scripts/cytomine-postgis-restore.sh /usr/local/bin/restore
+
+RUN chmod +x /usr/local/bin/backup /usr/local/bin/restore /docker-entrypoint-cytomine.d/*.sh /checks/*.sh && \
+    chmod 0644 /backup-cron-job && \
+    chmod u+s /usr/bin/crontab && \
+    crontab /backup-cron-job && \
+    chmod 0700 /checks -R
+
 COPY --from=entrypoint-scripts --chmod=774 /cytomine-entrypoint.sh /usr/local/bin/
 COPY --from=entrypoint-scripts --chmod=774 /envsubst-on-templates-and-move.sh /docker-entrypoint-cytomine.d/500-envsubst-on-templates-and-move.sh
 
